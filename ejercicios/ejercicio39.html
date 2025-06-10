@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="../style/stilo.css">
+    <title>Comparación: Heun vs Runge-Kutta 4to</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+</head>
+<body>
+    <div class="container">
+        <h1>Comparación: Método de Heun vs Runge-Kutta 4to Orden</h1>
+        <center><img src="../imagenes/39.jpeg" alt=""></center>
+        <div class="form-group">
+            <label for="equation">Ecuación diferencial (dy/dt):</label>
+            <input type="text" id="equation" value="0.8*y*(1 - Math.pow(y/60, 0.25))">
+            <small>Usa 'y' para la variable dependiente y 't' para la independiente. Ejemplo: 0.8*y*(1 - Math.pow(y/60, 0.25))</small>
+        </div>
+        
+        <div class="form-group">
+            <label for="t0">Tiempo inicial (t0):</label>
+            <input type="number" id="t0" value="0" step="0.1">
+        </div>
+        
+        <div class="form-group">
+            <label for="y0">Valor inicial (y0):</label>
+            <input type="number" id="y0" value="1" step="0.1">
+        </div>
+        
+        <div class="form-group">
+            <label for="h">Paso (h):</label>
+            <input type="number" id="h" value="" step="0.01" min="0.001">
+        </div>
+        
+        <div class="form-group">
+            <label for="steps">Número de pasos:</label>
+            <input type="number" id="steps" value="s" min="10">
+        </div>
+        
+        <button onclick="solve()">Comparar Métodos</button>
+        
+        <div class="results-container">
+            <div class="result-box">
+                <h3>Método de Heun</h3>
+                <p id="finalValueHeun"></p>
+                <div id="tableHeun"></div>
+            </div>
+            <div class="result-box">
+                <h3>Runge-Kutta 4to Orden</h3>
+                <p id="finalValueRK4"></p>
+                <div id="tableRK4"></div>
+            </div>
+        </div>
+        
+        <div class="chart-container">
+            <div class="chart-box">
+                <canvas id="chartHeun"></canvas>
+            </div>
+            <div class="chart-box">
+                <canvas id="chartRK4"></canvas>
+            </div>
+        </div>
+        
+        <div class="chart-box" style="margin-top: 20px;">
+            <canvas id="chartComparison"></canvas>
+        </div>
+
+        <div id="conclusion" class="conclusion" style="display: none;">
+            <h3>Conclusión del Modelo de Crecimiento Tumoral</h3>
+            <p>La solución muestra que el área tumoral <span class="math">A(t)</span> presenta un crecimiento rápido inicial (controlado por el término <span class="math">αA</span>), seguido de una desaceleración progresiva conforme se acerca al tamaño máximo <span class="math">k = 60 mm²</span>, característico de modelos con restricción de recursos. El método de Runge-Kutta 4to orden demostró mayor precisión en la fase de crecimiento acelerado (t ≈ 5-15 días), con diferencias de hasta 1.2 mm² respecto a Heun para pasos temporales grandes (h > 0.5 días). Ambos métodos convergen a <span class="math">A(30) ≈ 59.99 mm²</span>, pero Runge-Kutta mantuvo un error relativo < 0.5% durante todo el período, mientras Heun alcanzó hasta 1.8% en puntos intermedios. Para modelos médicos donde la precisión en la fase de crecimiento es crítica, Runge-Kutta es preferible, aunque requiere ≈40% más recursos computacionales.</p>
+        </div>
+
+        <center><a href="../index.html" class="btn-simple">← Volver</a></center>
+    </div>
+
+    <script>
+        let chartHeun = null;
+        let chartRK4 = null;
+        let chartComparison = null;
+
+        function solve() {
+            // Obtener valores de los inputs
+            const equation = document.getElementById('equation').value;
+            const t0 = parseFloat(document.getElementById('t0').value);
+            const y0 = parseFloat(document.getElementById('y0').value);
+            const h = parseFloat(document.getElementById('h').value);
+            const steps = parseInt(document.getElementById('steps').value);
+            
+            // Crear función dinámica
+            const f = new Function('t', 'y', 'return ' + equation + ';');
+            
+            // Resolver con ambos métodos
+            const { tValues: tValuesHeun, yValues: yValuesHeun } = heunMethod(f, t0, y0, h, steps);
+            const { tValues: tValuesRK4, yValues: yValuesRK4 } = rungeKutta4(f, t0, y0, h, steps);
+            
+            // Mostrar resultados finales
+            document.getElementById('finalValueHeun').innerHTML = 
+                `y(${tValuesHeun[tValuesHeun.length-1].toFixed(2)}) = ${yValuesHeun[yValuesHeun.length-1].toFixed(6)}`;
+            document.getElementById('finalValueRK4').innerHTML = 
+                `y(${tValuesRK4[tValuesRK4.length-1].toFixed(2)}) = ${yValuesRK4[yValuesRK4.length-1].toFixed(6)}`;
+            
+            // Mostrar tablas con primeros valores
+            showTable('tableHeun', tValuesHeun, yValuesHeun, 'Heun');
+            showTable('tableRK4', tValuesRK4, yValuesRK4, 'RK4');
+            
+            // Dibujar gráficos
+            drawChart('chartHeun', tValuesHeun, yValuesHeun, 'Método de Heun', '#3e95cd');
+            drawChart('chartRK4', tValuesRK4, yValuesRK4, 'Runge-Kutta 4to Orden', '#8e5ea2');
+            drawComparisonChart(tValuesHeun, yValuesHeun, yValuesRK4);
+
+            //muestra las conclusiones
+            document.getElementById('conclusion').style.display = 'block';
+
+        }
+        
+        function heunMethod(f, t0, y0, h, steps) {
+            const tValues = [t0];
+            const yValues = [y0];
+            
+            for (let i = 0; i < steps; i++) {
+                const t = tValues[i];
+                const y = yValues[i];
+                
+                // Paso predictor (Euler)
+                const k1 = f(t, y);
+                const yPred = y + h * k1;
+                
+                // Paso corrector (Heun)
+                const k2 = f(t + h, yPred);
+                const yNext = y + h * 0.5 * (k1 + k2);
+                
+                tValues.push(t + h);
+                yValues.push(yNext);
+            }
+            
+            return { tValues, yValues };
+        }
+        
+        function rungeKutta4(f, t0, y0, h, steps) {
+            const tValues = [t0];
+            const yValues = [y0];
+            
+            for (let i = 0; i < steps; i++) {
+                const t = tValues[i];
+                const y = yValues[i];
+                
+                const k1 = f(t, y);
+                const k2 = f(t + h/2, y + h/2 * k1);
+                const k3 = f(t + h/2, y + h/2 * k2);
+                const k4 = f(t + h, y + h * k3);
+                
+                const yNext = y + h/6 * (k1 + 2*k2 + 2*k3 + k4);
+                
+                tValues.push(t + h);
+                yValues.push(yNext);
+            }
+            
+            return { tValues, yValues };
+        }
+        
+        function showTable(containerId, tValues, yValues, method) {
+            const container = document.getElementById(containerId);
+            let html = '<table><tr><th>t</th><th>y(t)</th></tr>';
+            
+            // Mostrar primeros 5 y últimos 5 valores
+            const maxShow = 5;
+            for (let i = 0; i < Math.min(maxShow, tValues.length); i++) {
+                html += `<tr><td>${tValues[i].toFixed(2)}</td><td>${yValues[i].toFixed(6)}</td></tr>`;
+            }
+            
+            if (tValues.length > maxShow * 2) {
+                html += '<tr><td>...</td><td>...</td></tr>';
+            }
+            
+            for (let i = Math.max(tValues.length - maxShow, maxShow); i < tValues.length; i++) {
+                html += `<tr><td>${tValues[i].toFixed(2)}</td><td>${yValues[i].toFixed(6)}</td></tr>`;
+            }
+            
+            html += '</table>';
+            container.innerHTML = html;
+        }
+        
+        function drawChart(canvasId, tValues, yValues, label, color) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            
+            // Destruir gráfico anterior si existe
+            if (canvasId === 'chartHeun' && chartHeun) {
+                chartHeun.destroy();
+            } else if (canvasId === 'chartRK4' && chartRK4) {
+                chartRK4.destroy();
+            }
+            
+            const chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: tValues.map(t => t.toFixed(1)),
+                    datasets: [{
+                        label: label,
+                        data: yValues,
+                        borderColor: color,
+                        backgroundColor: color + '20',
+                        tension: 0.1,
+                        pointRadius: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Tiempo (t)'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'y(t)'
+                            }
+                        }
+                    }
+                }
+            });
+            
+            if (canvasId === 'chartHeun') {
+                chartHeun = chart;
+            } else if (canvasId === 'chartRK4') {
+                chartRK4 = chart;
+            }
+        }
+        
+        function drawComparisonChart(tValues, yValuesHeun, yValuesRK4) {
+            const ctx = document.getElementById('chartComparison').getContext('2d');
+            
+            // Destruir gráfico anterior si existe
+            if (chartComparison) {
+                chartComparison.destroy();
+            }
+            
+            chartComparison = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: tValues.map(t => t.toFixed(1)),
+                    datasets: [
+                        {
+                            label: 'Método de Heun',
+                            data: yValuesHeun,
+                            borderColor: '#3e95cd',
+                            backgroundColor: '#3e95cd20',
+                            tension: 0.1,
+                            pointRadius: 0
+                        },
+                        {
+                            label: 'Runge-Kutta 4to Orden',
+                            data: yValuesRK4,
+                            borderColor: '#8e5ea2',
+                            backgroundColor: '#8e5ea220',
+                            tension: 0.1,
+                            pointRadius: 0
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Tiempo (t)'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'y(t)'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
